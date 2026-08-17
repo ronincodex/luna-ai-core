@@ -26,3 +26,8 @@ build/
 
 # Ollama models (Not comitting the original 4.7GB file)
 .ollama/
+
+# Conda environments
+/envs/
+/luna-env/
+*.conda
