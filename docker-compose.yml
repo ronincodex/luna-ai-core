@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  luna:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ~/.luna:/root/.luna # Persist SQLite
+      - ~/.ollama:/root/.ollama # Mount Ollama models (optional)
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -103,6 +103,25 @@ async def confirm(session_id: str, req: ConfirmRequest):
 # requires_confirmation=requires_conf,
 # j)
 
+from luna.proactive import ProactiveEngine
+
+
+@app.post("/event")
+async def handle_event(event: dict):
+    user_id = event.get("user_id", "default")
+    event_type = event.get("type")
+    if event_type == "traffic":
+        result = ProactiveEngine.evaluate_traffic_event(
+            user_id, event.get("severity", "moderate"), event.get("context", {})
+        )
+        if result.get("notify"):
+            # In real app, push notification; here just log and return
+            return {"notified": True, "message": result["message"]}
+        else:
+            return {"notified": False, "reason": result.get("reason", "Not relevant")}
+
+    return {"error": "Unknown event type"}
+
 
 # Health check for Docker/Kubernetes
 @app.get("/health")
