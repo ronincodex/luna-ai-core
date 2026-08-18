@@ -1,14 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from luna.orchestrator import LunaOrchestrator
 from luna.state import LunaState
 import uuid
 
 app = FastAPI(title="Luna AI Core - Step 1", version="0.1.0")
-
 # In-memory store for active sessions (Short-term memory)
 # In production, it's Redis. For the Proof Of Concept (POC), it's sufficient
 sessions: dict[str, LunaState] = {}
+orchestrator = LunaOrchestrator()
 
 
 # Request/Response Models
@@ -39,30 +39,69 @@ async def chat(request: ChatRequest):
     else:
         session_id = request.session_id
 
-    # 2. Run the Orchestrator
-    orchestrator = LunaOrchestrator()
-    # Passing the 'existing' state in order to maintain conversation History.
-    # Currently creating a fresh state per request to keep it simple
-    # Later, loading the existing state from 'session[session_id]'.
     state = orchestrator.process(session_id, request.input)
-
-    # 3. Store the updated state back (for short-term memory later)
     sessions[session_id] = state
-
-    # 4. Build the response
-    # Problem statement mentions to distinguish action states.
-    requires_conf = state.status == "AWAITING_CONFIRMATION"
-
-    # Flatterning the audit trail for JSON serialization
-    audit_logs = [entry.model_dump(mode="json") for entry in state.audit_trail]
-
     return ChatResponse(
         session_id=session_id,
         response=state.final_response,
         status=state.status,
-        audit_trail=audit_logs,
-        requires_confirmation=requires_conf,
+        audit_trail=[entry.model_dump(mode="json") for entry in state.audit_trail],
+        requires_confirmation=(state.status == "AWAITING_CONFIRMATION"),
     )
+
+
+class ConfirmRequest(BaseModel):
+    action_id: str
+
+
+class ConfirmResponse(BaseModel):
+    session_id: str
+    response: str
+    status: str
+    audit_trail: list
+
+
+@app.post("/confirm/{session_id}", response_model=ConfirmResponse)
+async def confirm(session_id: str, req: ConfirmRequest):
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    state = sessions[session_id]
+    # Execute the confirmed action
+    state = orchestrator.execute_confirmed_action(state, req.action_id)
+    sessions[session_id] = state
+    return ConfirmResponse(
+        session_id=session_id,
+        response=state.final_response,
+        status=state.status,
+        audit_trail=[entry.model_dump(mode="json") for entry in state.audit_trail],
+    )
+
+
+# @app.get(
+# 2. Run the Orchestrator
+# orchestrator = LunaOrchestrator()
+# Passing the 'existing' state in order to maintain conversation History.
+# Currently creating a fresh state per request to keep it simple
+# Later, loading the existing state from 'session[session_id]'.
+# state = orchestrator.process(session_id, request.input)
+
+# 3. Store the updated state back (for short-term memory later)
+# sessions[session_id] = state
+
+# 4. Build the response
+# Problem statement mentions to distinguish action states.
+# requires_conf = state.status == "AWAITING_CONFIRMATION"
+
+# Flatterning the audit trail for JSON serialization
+# audit_logs = [entry.model_dump(mode="json") for entry in state.audit_trail]
+
+# return ChatResponse(
+# session_id=session_id,
+# response=state.final_response,
+# status=state.status,
+# audit_trail=audit_logs,
+# requires_confirmation=requires_conf,
+# j)
 
 
 # Health check for Docker/Kubernetes

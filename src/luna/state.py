@@ -23,6 +23,9 @@ class LunaState(BaseModel):
     # The user's current input
     user_input: str = ""
 
+    # Extra field during Phase-2 implementation
+    action_id: Optional[str] = None  # For pending confirmation actions
+
     # The current step in the state machine
     status: Literal[
         "ROUTING",  # Deciding what to do.

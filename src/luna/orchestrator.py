@@ -9,10 +9,24 @@
 """
 
 from luna.state import LunaState
+from luna.llm.client import OllamaClient
+from luna.tools.weather import WeatherTool
+from luna.tools.traffic import TrafficTool
+from luna.tools.calendar import CalendarTool
+from luna.tools.messaging import MessagingTool
+from luna.permissions.gate import PermissionGate
 import logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Tool registry
+TOOLS = {
+    "get_weather": WeatherTool(),
+    "get_traffic": TrafficTool(),
+    "create_reminder": CalendarTool(),
+    "send_message": MessagingTool(),
+}
 
 
 class LunaOrchestrator:
@@ -21,6 +35,9 @@ class LunaOrchestrator:
         Step-1: Using Deterministic Routing (keyword matching)
         Step-2: Replacing the keyword matching with an LLM call for ambiguity.
     """
+
+    def __init__(self):
+        self.llm = OllamaClient()
 
     def process(self, session_id: str, user_input: str) -> LunaState:
         # Step 1. Initialize the state
@@ -110,19 +127,53 @@ class LunaOrchestrator:
                 "tool": "send_message",
                 "parameters": {"recipient": "Mom", "content": state.user_input},
             }
+            action_id = PermissionGate.create_action_id(state.pending_tool_call)
+            state.action_id = action_id
             state.log_step(
                 "PermissionGate",
                 "BLOCKED_SENSITIVE",
-                "Messaging requires user confirmation.",
+                f"Action {action_id} requires confirmation.",
             )
             return state
 
         # Rule 5: If nothing matches, LLM must be called.
+        logger.info("No Keyword match, calling LLM.")
+        llm_response = self.llm.ask_for_tool(state.user_input)
+        if llm_response is None:
+            # LLM failed or didn't produce valid JSON
+            state.status = "RESPONDING"
+            state.final_response = (
+                "I'm sorry, I couldn't understand that. Could you  rephrase?"
+            )
+            state.log_step(
+                "Router", "LLM_FAILED", "LLM did not return a vlid response."
+            )
+            return state
+
+        if llm_response.get("action") == "direct_answer":
+            state.status = "RESPONDING"
+            state.final_response = llm_response.get(
+                "answer", "I'm not sure how to answer that."
+            )
+            state.log_step("Router", "DIRECT_ANSWER", "LLM chose direct answer.")
+            return state
+
+        if llm_response.get("action") == "tool_call":
+            tool_name = llm_response.get("tool_name")
+            params = llm_response.get("parameters", {})
+            if tool_name not in TOOLS:
+                state.status = "RESPONDING"
+                state.final_response = f"I don't have a tool called {tool_name}."
+                state.log_step("Router", "UNKNOWN_TOOL", f"Tool {tool_name} not found.")
+                return state
+            state.status = "EXECUTING"
+            state.pending_tool_call = {"tool": tool_name, "parameters": params}
+            state.log_step("Router", "ROUTED_TO_LLM_CALL", f"LLM chose {tool_name}.")
+            return state
+
         # For Step 1, responding generically to test the loop.
         state.status = "RESPONDING"
-        state.final_response = (
-            f"I heard you say: '{state.user_input}'. I'm still learning to handle that."
-        )
+        state.final_response = "I'm still learning. Could you try again?"
         state.log_step(
             "Router",
             "ROUTED_TO_GENERIC",
@@ -131,16 +182,54 @@ class LunaOrchestrator:
         return state
 
     def _executor(self, state: LunaState) -> LunaState:
+        tool_name = state.pending_tool_call.get("tool")
+        params = state.pending_tool_call.get("parameters", {})
+        tool = TOOLS.get(tool_name)
+        if not tool:
+            state.status = "FAILED"
+            state.final_repsonse = f"Tool {tool_name} not available."
+            state.log_step(
+                "Executor", "TOOL_NOT_FOUND", f"Tool {tool_name} not registered."
+            )
+            return state
+
+        # Check if this tool requires confirmation already handled
+        if PermissionGate.requires_confirmation(state.pending_tool_call):
+            # Should have been caught earlier, but just in case
+            state.status = "AWAITING_CONFIRMATION"
+            state.log_step(
+                "Executor",
+                "MISSING_CONFIRMATION",
+                "Sensitive tool called without confirmation.",
+            )
+            return state
+
+        try:
+            result = tool.execute(params)
+            state.tool_result = str(result)
+            state.status = "RESPONDING"
+            # Generate a simple response; we'll let responder format nicely
+            state.final_response = f"Executed {tool_name}. Result: {result}"
+            state.log_step(
+                "Executor", "EXECUTED", f"Tool {tool_name} executed successfully."
+            )
+
+        except Exception as e:
+            state.status = "FAILED"
+            state.final_response = f"Tool Executin failed: {str(e)}"
+            state.log_step("Executor", "EXECUTION_FAILED", str(e))
+
+        return state
         """This is Placeholder Executor (State 2 will implement real mocks)
         For Step 1, we just simulate success to close the loop.
         """
-        state.tool_result = "Mock execution successful."
-        state.status = "RESPONDING"
-        state.final_response = (
-            f"Executed {state.pending_tool_call['tool']}. Result: {state.tool_result}"
-        )
-        state.log_step("Executor", "EXECUTED_MOCK", "Placeholder execution for Step 1.")
-        return state
+        # state.tool_result = "Mock execution successful."
+        # state.status = "RESPONDING"
+        # state.final_response = (
+        # f"Executed {state.pending_tool_call['tool']}. Result: {state.tool_result}"
+        # )
+        # state.log_step("Executor", "EXECUTED_MOCK", "Placeholder execution for Step 1.")
+        # return state
 
     """ Placeholder Responder (Step 2 will use LLM to neutralize)"""
 
@@ -150,4 +239,49 @@ class LunaOrchestrator:
             state.final_response = "Processing complete, but no response generated."
         state.status = "COMPLETE"
         state.log_step("Responder", "RESPONSE_READY", "Final response set.")
+        return state
+
+    # Methods to Execute confirmed action (for the confirmation endpoint)
+
+    def execute_confirmed_action(self, state: LunaState, action_id: str) -> LunaState:
+        """Execute a previously confirmed action directly without re-checking permissions."""
+        tool_call = PermissionGate.confirm_action(action_id)
+        if not tool_call:
+            state.status = "FAILED"
+            state.final_response = "Invalid or already confirmed action."
+            state.log_step(
+                "Executor",
+                "INVALID_CONFIRMATION",
+                f"Action {action_id} not found or already used.",
+            )
+            return state
+
+        # Directly execute the tool (bypass permission check)
+        tool_name = tool_call.get("tool")
+        params = tool_call.get("parameters", {})
+        tool = TOOLS.get(tool_name)
+        if not tool:
+            state.status = "FAILED"
+            state.final_repsonse = f"Tool {tool_name} not available."
+            state.log_step(
+                "Executor", "TOOL_NOT_FOUND", f"Tool {tool_name} not registered."
+            )
+            return state
+
+        try:
+            result = tool.execute(params)
+            state.tool_result = str(result)
+            state.final_response = f"Executed {tool_name}. Result: {result}"
+            state.status = "COMPLETE"
+            state.log_step(
+                "Executor",
+                "CONFIRMED_EXECUTED",
+                f"Confirmed tool {tool_name} executed successfully.",
+            )
+            PermissionGate.mark_executed(action_id)
+        except Exception as e:
+            state.status = "FAILED"
+            state.final_response = f"Tool execution failed: {str(e)}"
+            state.log_step("Executor", "CONFIRMED_EXECUTION_FAILED", str(e))
+
         return state
