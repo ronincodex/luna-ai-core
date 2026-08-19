@@ -42,9 +42,6 @@ curl -X POST "http://localhost:8000/chat" -H "Content-Type: application/json" -d
 
 ---
 
-# Demo Video
-[Watch the full 10-minute demo walkthrough here](https://drive.google.com/file/d/16tA5_Mwno2fSnPa02-0hEqafeo2eXlGE/view?usp=sharing)
-
 # Architecture
 
 ![Luna Architecture Diagram](docs/luna-architecture.png)
@@ -60,10 +57,14 @@ graph TD
     LLM --> Gate[Permission Gate]
 ```
 
-A simplified flow:
+# A simplified flow:
+
 [User → Router → Memory (load) → LLM / Deterministic → Permission Gate → Tool → Response]:
 The state machine (custom while loop) manages states: Routing, Executing, Awaiting_Confirmation, Responding, Complete, Failed. Every Transition is logged to the audit trail.
 
+
+# Demo Video
+[Watch the demo walkthrough video here](https:drive.google.com/file/d/16tA5_Mwno2fSnPa02-0hEqafeo2eXlGE/view?usp=sharing)
 # Docker Deployment
 ## Build and run
 docker compose build
