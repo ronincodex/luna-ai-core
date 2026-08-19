@@ -42,6 +42,8 @@ curl -X POST "http://localhost:8000/chat" -H "Content-Type: application/json" -d
 
 ---
 
+# Demo Video
+[Watch the full 10-minute demo walkthrough here](https://drive.google.com/file/d/16tA5_Mwno2fSnPa02-0hEqafeo2eXlGE/view?usp=sharing)
 
 # Architecture
 
