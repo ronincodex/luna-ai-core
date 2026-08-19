@@ -64,7 +64,7 @@ The state machine (custom while loop) manages states: Routing, Executing, Awaiti
 
 
 # Demo Video
-[Watch the demo walkthrough video here](https:drive.google.com/file/d/16tA5_Mwno2fSnPa02-0hEqafeo2eXlGE/view?usp=sharing)
+[Watch the product-testing-video walkthrough here](https://drive.google.com/file/d/16tA5_Mwno2fSnPa02-0hEqafeo2eXlGE/view?usp=sharing)
 # Docker Deployment
 ## Build and run
 docker compose build
