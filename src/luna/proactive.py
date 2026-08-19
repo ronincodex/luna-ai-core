@@ -13,7 +13,7 @@ class ProactiveEngine:
             return {"notify": False, "reason": "Severity not severe"}
         # Check if user has a meeting in the next hour (simplified)
         # In production, fetch from calendar tool
-        if context.get("meeting_soon", Flase):
+        if context.get("meeting_soon", False):
             return {
                 "notify": True,
                 "message": "Severe traffic on your route. Consider leaving 20 minutes early.",

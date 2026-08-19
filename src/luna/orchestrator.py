@@ -16,6 +16,7 @@ from luna.tools.calendar import CalendarTool
 from luna.tools.messaging import MessagingTool
 from luna.tools import TOOLS
 from luna.permissions.gate import PermissionGate
+from luna.memory.db import MemoryManager
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -216,6 +217,26 @@ class LunaOrchestrator:
             )
             return state
 
+        # Rule 4.1: Rule for Email:
+        # In _router, after the "send" rule:
+        if any(k in input_lower for k in ["email", "mail"]):
+            state.status = "AWAITING_CONFIRMATION"
+            state.pending_tool_call = {
+                "tool": "send_email",
+                "parameters": {
+                    "recipient": "Client",
+                    "subject": "Meeting",
+                    "body": state.user_input,
+                },
+            }
+            action_id = PermissionGate.create_action_id(state.pending_tool_call)
+            state.action_id = action_id
+            state.log_step(
+                "PermissionGate",
+                "BLOCKED_SENSITIVE",
+                f"Action {action_id} requires confirmation.",
+            )
+            return state
         # Rule 5: If nothing matches, LLM must be called.
         logger.info("No Keyword match, calling LLM.")
         llm_response = self.llm.ask_for_tool(state.user_input)

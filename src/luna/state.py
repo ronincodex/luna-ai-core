@@ -68,3 +68,6 @@ class LunaState(BaseModel):
     # Helper function to log every step
     def log_step(self, node: str, decision: str, reason: str):
         self.audit_trail.append(AuditEntry(node=node, decision=decision, reason=reason))
+
+    # Add to LunaState
+    tool_conext: str = ""

@@ -1,0 +1,59 @@
+
+---
+
+## 2. `docs/production_note.md` – Updated with Docker and Current Implementation
+
+```markdown
+# Luna AI Core – Production Roadmap
+
+This document outlines how the current POC would evolve into a production‑grade personal assistant.
+
+## 1. Scalability (1,000 → Millions of Users)
+- **Stateless API** – Session state stored in Redis (instead of in‑memory dict).
+- **Horizontal scaling** – Multiple FastAPI instances behind a load balancer (Nginx).
+- **Database** – Replace SQLite with PostgreSQL (with connection pooling and read replicas).
+- **LLM** – Use hosted models (e.g., GPT‑4) with auto‑scaling, or deploy multiple Ollama workers with model sharding.
+
+## 2. Security & Privacy
+- **Authentication** – OAuth2 / JWT for user identification.
+- **Authorization** – Role‑based access control (RBAC) for tools.
+- **Encryption** – Encrypt user data at rest (AES‑256) and in transit (TLS).
+- **Audit** – All tool executions and confirmations are logged with full provenance (already implemented).
+
+## 3. Offline / Degraded Mode
+- Cache last N responses for common queries.
+- Deterministic commands (time, reminders, local math) run without LLM.
+- Queue LLM‑dependent requests and process when connectivity is restored.
+
+## 4. On‑device vs. Cloud
+- **On‑device**: Wake‑word detection, STT/TTS, local cache, deterministic rule engine.
+- **Cloud**: LLM inference, long‑term memory, complex multi‑step planning, proactive event processing.
+
+## 5. Multi‑step Execution
+The current state machine (while loop) already supports sequential routing. In production, we would add a dedicated `PLANNING` node that:
+- Parses complex requests into a DAG of tool calls.
+- Executes steps sequentially, feeding results back.
+- Handles failures and retries with idempotency.
+
+## 6. Proactive Intelligence
+- Event sources (traffic, calendar, health) push to a message queue (Kafka/RabbitMQ).
+- A rules engine filters events before triggering the LLM.
+- User‑configurable "Do Not Disturb" hours.
+
+## 7. Health & Well‑being (Future)
+- Use synthetic/aggregated sensor data (steps, sleep, HR) with explicit consent.
+- Separate raw data from derived insights – never present as medical advice.
+- Provide non‑clinical suggestions (e.g., "You've been less active today; consider a short walk.").
+
+## 8. Testing & Observability
+- Unit tests for each tool and state transition.
+- Tracing (OpenTelemetry) for end‑to‑end visibility.
+- Automated integration tests for all scenarios (already included).
+
+## 9. Deployment
+- Docker containers orchestrated via Kubernetes.
+- CI/CD pipeline (GitHub Actions) with linting, testing, security scanning.
+- Blue‑green deployment for zero‑downtime updates.
+
+## 10. Conclusion
+The POC demonstrates a solid, auditable foundation. The architecture is designed to evolve into a production assistant with minimal refactoring.

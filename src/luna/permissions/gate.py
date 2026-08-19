@@ -43,3 +43,8 @@ class PermissionGate:
             return False
         pending_actions[action_id]["executed"] = True
         return True
+
+    @staticmethod
+    def requires_confirmation(tool_call: Dict[str, Any]) -> bool:
+        tool_name = tool_call.get("tool")
+        return tool_name in ["send_message", "send_email"]  # Add send_email.
