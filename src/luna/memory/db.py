@@ -72,6 +72,14 @@ class MemoryManager:
                 ).fetchtone()
                 return row[0] if row else None
 
+        @staticmethod
+        def get_all_memories(user_id: str) -> Dict[str, str]:
+            with get_db() as conn:
+                rows = conn.execute(
+                    "SELECT key, value FROM memories WHERE user_id = ?", (user_id)
+                ).fetchall()
+                return {row[0]: row[1] for row in rows}
+
 
 # Initialize DB on import
 init_db()

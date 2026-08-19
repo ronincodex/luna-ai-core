@@ -14,6 +14,7 @@ from luna.tools.weather import WeatherTool
 from luna.tools.traffic import TrafficTool
 from luna.tools.calendar import CalendarTool
 from luna.tools.messaging import MessagingTool
+from luna.tools import TOOLS
 from luna.permissions.gate import PermissionGate
 import logging
 
@@ -44,6 +45,9 @@ class LunaOrchestrator:
         state = LunaState(session_id=session_id, user_input=user_input)
         state.log_step("Orchestrator", "INIT", "State initialized for new input.")
 
+        # Load long-term memory
+        state = self._load_user_context(state)
+
         # Step 2: The State Loop(The Engine)
         # Loops are done until the status is COMPLETE, AWAITING_CONFIRMATION, or FAILED.
         while state.status not in ["COMPLETE", "AWAITING_CONFIRMATION", "FAILED"]:
@@ -66,12 +70,90 @@ class LunaOrchestrator:
                 )
                 break
 
+        # After Response: Extract and store preferences (NEW)
+        if state.status == "COMPLETE" and state.user_input:
+            self._extract_and_store_preferences(state)
+
         return state
+
+    # Load User Profile and Memories from SQLite
+    def _load_user_context(self, state: LunaState) -> LunaState:
+        """Runs at the start of process()
+        Fetches user's profile from SQLite. If none exists, creates a default one.
+        Fetches all stored key-value memories (e.g., {"email_style": "informal"}) and populates state.memories.
+        Logs every step in the audit trail."""
+        user_id = state.session_id  # Using session_is as user_id for POC
+        profile = MemoryManager.get_profile(user_id)
+        if profile:
+            state.user_profile = profile
+            state.log_step("Memory", "PROFILE_LOADED", f"Loaded profile for {user_id}")
+        else:
+            # First time user - save default profile
+            MemoryManager.save_profile(user_id, state.user_profile)
+            state.log_step(
+                "Memory", "PROFILE_CREATED", f"Created default profile for {user_id}"
+            )
+
+        # Load all memories
+        memories = MemoryManager.get_all_memories(user_id)
+        if memories:
+            state.memories = memories
+            state.log_step(
+                "Memory", "MEMORIES_LOADED", f"Loaded {len(memories)} memories"
+            )
+        else:
+            state.log_step("Memory", "NO_MEMORIES", "No stored memories found")
+
+        return state
+
+    # Extract Preferences from Conversations
+    def _extract_and_store_preferences(self, state: LunaState) -> None:
+        """Runs at the end of process() only if the state is COMPLETE:
+        Uses a dedicated LLM prompt asking: "Is this a clear, explicit preference?"
+        If yes -> stores it in SQLite and updates state.memories.
+        If no -> logs "NO_PREFERENCE" and does nothing.
+        Helps in preventing temporary statements (e.g., "I'm tired today") from polluting long-term memory.
+        Use LLM to extract a preference from the user's input if one exists."""
+        user_id = state.session_id
+
+        # Only run if there's a user input
+        if not state.user_input:
+            return
+
+        prompt = f"""
+        Analyze the user's statement and determine if they are expressing a clear, explicit preference or personal fact that should be remembered for future conversations.
+
+        User said: "{state.user_input}"
+
+        If there is a preference (e.g., "I have formal emails", "I prefer morning meetings", " I don't like spicy food"):
+            Return a JSON object with exactly two keys: "key" ( a short description label) and "value"(the preference text).
+
+        If there is NO clear preference or it's a one-off statement (e.g., "I'm tired today"): Return just an empty object {{}}.
+
+        Output only the JSON, no other text.
+        """
+
+        result = self.llm.ask_for_json(prompt)
+        if not result:
+            return
+
+        key = result.get("key")
+        value = result.get("value")
+        if key and value:
+            # Store in SQLlite
+            MemoryManager.set_memory(user_id, key, value)
+            # Also update the current state's memory cache
+            state.memories[key] = value
+            state.log_step("Memory", "PREFERENCE_STORED", f"Stored '{key}': '{value}'")
+            logger.info(f"Stored preference for {user_id}: {key} -> {value}")
+        else:
+            state.log_step("Memory", "NO_PREFERENCE", "No explicit preference detected")
 
     def _router(self, state: LunaState) -> LunaState:
         """
         This is The Router (Step-1: Deterministic).
         It determines what to do based on the keywords. This saves massive CPU/RAM because we don't want to call the slow LLM for easy stuff.
+        Uses state.memories to personalize responses. For example, if the user says "Email the client", it checks if state.memories.get("email_style") == "informal" and adjust the email content accordingly.
         """
 
         input_lower = state.user_input.lower()
@@ -79,14 +161,14 @@ class LunaOrchestrator:
         # Rule 1: Weather
         if any(
             keyword in input_lower
-            for keyword in ["weather", "rain", "umbrella", "temperature"]
+            for keyword in ["weather", "rain", "umbrella"]  # "temperature"
         ):
             state.status = "EXECUTING"
             state.pending_tool_call = {
                 "tool": "get_weather",
                 "parameters": {"location": "home", "date": "tomorrow"},
             }
-            state.log_step("Router", "ROUTED_TO_WEATHER", "Keyword 'weather' detected.")
+            state.log_step("Router", "ROUTED_TO_WEATHER", "Keyword match.")
             return state
 
         # Rule 2: Reminder / Calendar
@@ -99,7 +181,7 @@ class LunaOrchestrator:
                 "tool": "create_reminder",
                 "parameters": {"text": state.user_input, "time": "tomorrow 9 AM"},
             }
-            state.log_step("Router", "ROUTED_TO_CALENDER", "Keyword 'remind' detected.")
+            state.log_step("Router", "ROUTED_TO_CALENDER", "Keyword  match.")
             return state
 
         # Rule 3: Traffic / Travel
@@ -112,9 +194,7 @@ class LunaOrchestrator:
                 "tool": "get_traffic",
                 "parameters": {"route": "home_to_office", "arrival_time": "09:30 AM"},
             }
-            state.log_step(
-                "Router", "ROUTED_TO_TRAFFIC", "Keyword 'traffic' or 'office' detected."
-            )
+            state.log_step("Router", "ROUTED_TO_TRAFFIC", "Keyword match.")
             return state
 
         # Rule 4: Messaging / Email (Sensitive Action)

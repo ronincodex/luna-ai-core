@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+.env
+.git
+.ollama
+.vscode
+.idea
+*.log
+.venv
+luna-env

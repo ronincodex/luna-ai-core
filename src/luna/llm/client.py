@@ -13,6 +13,25 @@ class OllamaClient:
         self.model = model
         self.client = ollama.Client()
 
+    def ask_for_json(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """Send a free-form prompt and expect a JSON response."""
+        try:
+            response = self.client.chat(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+                options={"temperature": 0.0},
+            )
+            raw = response["message"]["content"].strip()
+            if raw.startswith("```json"):
+                raw = raw.split("```json")[1].split("```")[0]
+            elif raw.startswith("```"):
+                raw = raw.split("```")[1].split("```")[0]
+            return json.loads(raw)
+        except Exception as e:
+            logger.error(f"ask_for_json error: {e}")
+            return None
+
     def ask_for_tool(
         self, user_input: str, context: str = ""
     ) -> Optional[Dict[str, Any]]:

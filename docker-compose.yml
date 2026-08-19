@@ -1,12 +1,20 @@
 version: '3.8'
+
 services:
   luna:
     build: .
+    container_name: luna-ai-core
     ports:
-      - "8000:8000"
+      - "8000:8000"   # Map container port 8000 to host port 8000
     volumes:
-      - ~/.luna:/root/.luna # Persist SQLite
-      - ~/.ollama:/root/.ollama # Mount Ollama models (optional)
-
+      # Persist the SQLite database so you don't lose memory between container restarts
+      - ~/.luna:/root/.luna
+      # OPTIONAL: Mount Ollama models if you want to run Ollama inside container (not recommended)
+      # - ~/.ollama:/root/.ollama
+    environment:
+      # Tells the Python app where Ollama is (the host machine)
+      - OLLAMA_HOST=http://host.docker.internal:11434
     extra_hosts:
+      # For Linux users, ensures 'host.docker.internal' resolves
       - "host.docker.internal:host-gateway"
+    restart: unless-stopped

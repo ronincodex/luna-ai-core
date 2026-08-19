@@ -23,12 +23,15 @@ class LunaState(BaseModel):
     # The user's current input
     user_input: str = ""
 
+    memories: Dict[str, str] = {}
+
     # Extra field during Phase-2 implementation
     action_id: Optional[str] = None  # For pending confirmation actions
 
     # The current step in the state machine
     status: Literal[
         "ROUTING",  # Deciding what to do.
+        "FETCHING_MEMORY",
         "FETCHING",  # To be implementd.
         "EXECUTING",  # Running a tool.
         "AWAITING_CONFIRMATION",  # Sensitive action needs a 'Yes'.
@@ -47,6 +50,8 @@ class LunaState(BaseModel):
         "luna_name": "Luna",
         "prefrences": {},
     }
+
+    memories: Dict[str, str] = {}
 
     # Planned tools to call (set by Router, used by Executor)
     pending_tool_call: Optional[Dict[str, Any]] = None
