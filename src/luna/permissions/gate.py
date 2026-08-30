@@ -11,8 +11,9 @@ pending_actions = {}
 class PermissionGate:
     @staticmethod
     def requires_confirmation(tool_call: Dict[str, Any]) -> bool:
-        """Return True if the tool call is sensitive."""
-        return tool_call.get("tool") == "send_message"
+        """Return True if the tool call is sensitive (Requires user approval)."""
+        tool_name = tool_call.get("tool")
+        return tool_name in ["send_message", "send_email"]
 
     @staticmethod
     def create_action_id(tool_call: Dict[str, Any]) -> str:

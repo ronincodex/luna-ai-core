@@ -21,6 +21,10 @@ class WeatherTool(Tool):
         }
 
     def execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        # Check for invalid date BEFORE generating mock data.
+        if parameters.get("date") == "invalid":
+            raise Exception("Weather service unavailable for the requested date.")
+
         location = parameters.get("location", "home")
         date_str = parameters.get("date", "tomorrow")
 
@@ -35,7 +39,3 @@ class WeatherTool(Tool):
             "humidity": random.randint(40, 80),
             "wind_speed": random.randint(5, 20),
         }
-
-        # If the date is "invalid", raise an error
-        if parameters.get("date") == "invalid":
-            raise Exception("Weather service unavailable for the requested date.")
