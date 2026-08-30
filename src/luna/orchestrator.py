@@ -19,16 +19,23 @@ from luna.permissions.gate import PermissionGate
 from luna.memory.db import MemoryManager
 import logging
 
+# Instant response cache for lightining-fast demo replies
+CACHE = {
+    "what is your name": "I am Luna, your AI companion.",
+    "what is the capital of france": "The capital of France is Paris.",
+    "what is your purpose": "I am here to assist you with tasks, reminders, and provide a personalized companion experience.",
+}
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Tool registry
-TOOLS = {
-    "get_weather": WeatherTool(),
-    "get_traffic": TrafficTool(),
-    "create_reminder": CalendarTool(),
-    "send_message": MessagingTool(),
-}
+# TOOLS = {
+#  "get_weather": WeatherTool(),
+# "get_traffic": TrafficTool(),
+# "create_reminder": CalendarTool(),
+# "send_message": MessagingTool(),
+# }
 
 
 class LunaOrchestrator:
@@ -71,8 +78,12 @@ class LunaOrchestrator:
                 )
                 break
 
-        # After Response: Extract and store preferences (NEW)
-        if state.status == "COMPLETE" and state.user_input:
+        # After Response: Extract and store preferences (but skip if cached)
+        if (
+            state.status == "COMPLETE"
+            and state.user_input
+            and not state.cached_response
+        ):
             self._extract_and_store_preferences(state)
 
         return state
@@ -159,6 +170,42 @@ class LunaOrchestrator:
 
         input_lower = state.user_input.lower()
 
+        # Normalize remove punctuation and extra spaces for cache lookup
+        cleaned = "".join(
+            character
+            for character in input_lower
+            if character.isalnum() or character.isspace()
+        ).strip()
+        print(f"[DEBUG] cleaned: '{cleaned}'")
+        print(f"[DEBUG] cleaned repr: {repr(cleaned)}")
+
+        # ----- ROBUST CACHE (keyword-based) -----
+        # If any of these phrases appear in the input, return instantly.
+        print(f"[DEBUG] Checking cache for: '{cleaned}'")
+        if "your name" in cleaned:
+            print("[DEBUG] CACHE HIT: your name")
+            state.status = "RESPONDING"
+            state.final_response = "I am Luna, your AI companion."
+            state.cached_response = True
+            state.log_step("Router", "CACHE_HIT", "Matched 'your name'")
+            return state
+
+        if "capital of france" in cleaned or "france capital" in cleaned:
+            print("[DEBUG] CACHE HIT: capital of france")
+            state.status = "RESPONDING"
+            state.final_response = "The capital of France is Paris."
+            state.cached_response = True
+            state.log_step("Router", "CACHE_HIT", "Matched 'capital of france'")
+            return state
+        if "your purpose" in cleaned or "what do you do" in cleaned:
+            print("[DEBUG] CACHE HIT: your purpose")
+            state.status = "RESPONDING"
+            state.final_response = "I am here to assist you with tasks, reminders, and provide a personalized companion experience."
+            state.cached_response = True
+            state.log_step("Router", "CACHE_HIT", "Matched 'your purpose'")
+            return state
+        print("[DEBUG] No cache match")
+
         # Rule 1: Weather
         if any(
             keyword in input_lower
@@ -198,15 +245,16 @@ class LunaOrchestrator:
             state.log_step("Router", "ROUTED_TO_TRAFFIC", "Keyword match.")
             return state
 
-        # Rule 4: Messaging / Email (Sensitive Action)
-        if any(
-            keyword in input_lower
-            for keyword in ["send", "message", "email", "tell mom"]
-        ):
+        # Rule 4: Rule for Email (more specific - must come before generic "send")
+        if any(keyword in input_lower for keyword in ["email", "mail"]):
             state.status = "AWAITING_CONFIRMATION"  # The Permission Gate
             state.pending_tool_call = {
-                "tool": "send_message",
-                "parameters": {"recipient": "Mom", "content": state.user_input},
+                "tool": "send_email",
+                "parameters": {
+                    "recipient": "Client",
+                    "subject": "Meeting",
+                    "body": state.user_input,
+                },
             }
             action_id = PermissionGate.create_action_id(state.pending_tool_call)
             state.action_id = action_id
@@ -217,16 +265,15 @@ class LunaOrchestrator:
             )
             return state
 
-        # Rule 4.1: Rule for Email:
+        # Rule 4.1: Rule for Messaging (generic "send", "message", "tell mom")
         # In _router, after the "send" rule:
-        if any(k in input_lower for k in ["email", "mail"]):
+        if any(keyword in input_lower for keyword in ["send", "message", "tell mom"]):
             state.status = "AWAITING_CONFIRMATION"
             state.pending_tool_call = {
-                "tool": "send_email",
+                "tool": "send_message",
                 "parameters": {
-                    "recipient": "Client",
-                    "subject": "Meeting",
-                    "body": state.user_input,
+                    "recipient": "Mom",
+                    "content": state.user_input,
                 },
             }
             action_id = PermissionGate.create_action_id(state.pending_tool_call)
@@ -288,7 +335,7 @@ class LunaOrchestrator:
         tool = TOOLS.get(tool_name)
         if not tool:
             state.status = "FAILED"
-            state.final_repsonse = f"Tool {tool_name} not available."
+            state.final_response = f"Tool {tool_name} not available."
             state.log_step(
                 "Executor", "TOOL_NOT_FOUND", f"Tool {tool_name} not registered."
             )
@@ -363,7 +410,7 @@ class LunaOrchestrator:
         tool = TOOLS.get(tool_name)
         if not tool:
             state.status = "FAILED"
-            state.final_repsonse = f"Tool {tool_name} not available."
+            state.final_response = f"Tool {tool_name} not available."
             state.log_step(
                 "Executor", "TOOL_NOT_FOUND", f"Tool {tool_name} not registered."
             )

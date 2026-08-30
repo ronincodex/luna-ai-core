@@ -20,6 +20,8 @@ class AuditEntry(BaseModel):
 class LunaState(BaseModel):
     session_id: str
 
+    cached_response: bool = False
+
     # The user's current input
     user_input: str = ""
 
@@ -51,7 +53,7 @@ class LunaState(BaseModel):
         "prefrences": {},
     }
 
-    memories: Dict[str, str] = {}
+    # memories: Dict[str, str] = {}
 
     # Planned tools to call (set by Router, used by Executor)
     pending_tool_call: Optional[Dict[str, Any]] = None
