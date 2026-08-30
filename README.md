@@ -56,10 +56,13 @@ OLLAMA_HOST=0.0.0.0 OLLAMA_VULKAN=0 OLLAMA_GPU_OVERRIDE=0 OLLAMA_MODELS="$HOME/.
 
 # In another terminal, start the FastAPI server
 uvicorn luna.main:app --reload --host 0.0.0.0 --port 8000
-Now open your browser and go to http://localhost:8000 to see the UI.
+```
+Now open your browser and go to **http://localhost:8000** to see the UI.
 
-# 2. Docker Deployment
-λbash
+### 2. Docker Deployment
+
+
+```bash
 # Build and run
 docker compose build
 docker compose up -d
@@ -69,9 +72,11 @@ curl http://localhost:8000/health
 
 # Stop
 docker compose down
-Note: Ensure Ollama is running on the host with OLLAMA_HOST=0.0.0.0 for Docker connectivity.
+```
 
-# Architecture
+> **Note: Ensure Ollama is running on the host with OLLAMA_HOST=0.0.0.0 for Docker connectivity.
+
+## 3. Architecture
 Luna is built as a finite state machine with explicit states:
 ROUTING → EXECUTING → AWAITING_CONFIRMATION → RESPONDING → COMPLETE / FAILED
 
@@ -81,81 +86,73 @@ Data Flow:
 
 text
 User → Router → Memory (load) → LLM / Deterministic → Permission Gate → Tool → Response
-Architecture Diagrams
-luna-architecture.png
+```
 
-luna-architecture.svg
+### Architecture Diagrams
 
-# Mermaid Diagram
-```graph TD
+
+- [luna-architecture.png](docs/luna-architecture.png)
+
+- [luna-architecture.svg](docs/luna-architecture.svg)
+
+### Mermaid Diagram
+```mermaid
+graph TD
     User[User] --> Router[Router]
     Router --> Memory[(Memory)]
     Memory --> LLM{LLM}
     LLM --> Gate[Permission Gate]
-    ```
+```
 
-# Test Scenarios
+## Test Scenarios
 Run the automated test script to validate all 10 mandatory scenarios:
 
-λbash
+```bash
 chmod +x test_all_scenarios.sh
 ./test_all_scenarios.sh
+```
+
 The script covers:
 
-# Health check
-
-1. Weather tool
-
-2. Traffic tool
-
-3. Reminder tool
-
-4. LLM direct answer (cache hit)
-
-5. Proactive events (severe & moderate)
-
-6. Send message + confirmation
-
-7. Send email + confirmation
-
-8. Injection attempt (blocked)
-
-9. Unknown tool (graceful failure)
+1.Health check
+2.Weather tool
+3.Traffic tool
+4.Reminder tool
+5.LLM direct answer (cache hit)
+6.Proactive events (severe & moderate)
+7.Send message + confirmation
+8.Send email + confirmation
+9.Injection attempt (blocked)
+10.Unknown tool (graceful failure)
 
 
-# Production Roadmap
+## Production Roadmap
 
-# See docs/production_note.md for:
-1. Scaling – Redis for sessions, PostgreSQL for memory, Kubernetes for orchestration
+See[`docs/production_note.md`](docs/production_note.md) for:
 
-2. Security – OAuth2, AES‑256 encryption, injection resistance
+- **Scaling** – Redis for sessions, PostgreSQL for memory, Kubernetes for orchestration
+- **Security** – OAuth2, AES‑256 encryption, injection resistance
+- **Offline fallback** – cached responses + deterministic commands
+- **Multi‑step planning** – dedicated PLANNING node for complex requests
 
-3. Offline fallback – cached responses + deterministic commands
+---
 
-4. Multi‑step planning – dedicated PLANNING node for complex requests
+## Limitations
 
-5. Limitations
+- Multi‑step chaining is conceptual; production would add a dedicated PLANNING node.
+- All tools are mocked – real integrations require API keys and user consent.
+- Offline mode is not fully implemented (only basic deterministic commands).
 
-6. Multi‑step chaining is conceptual; production would add a dedicated PLANNING node.
-
-7. All tools are mocked – real integrations require API keys and user consent.
-
-8. Offline mode is not fully implemented (only basic deterministic commands).
-
-# License & Acknowledgements
+## License & Acknowledgements
 © 2026 Saurabh Tiwari – Developed for IT WEBHUT AI Product R&D Assessment.
 
-Built with:
+**Built with:**
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Ollama](https://ollama.com/) (Qwen2.5:7b)
+- [SQLite](https://www.sqlite.org/)
+- [Docker](https://www.docker.com/)
 
-FastAPI
-
-Ollama (Qwen2.5:7b)
-
-SQLite
-
-Docker
-
-# Acknowledgements
+## Acknowledgement
 
 This project was developed with the assistance of a generative AI pair‑programming tool (DeepSeek), which supported architectural design, code refinement, and real‑time debugging during development.
 
