@@ -1,17 +1,31 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from luna.permissions.gate import PermissionGate
 from luna.orchestrator import LunaOrchestrator
 from luna.state import LunaState
+from luna.proactive import ProactiveEngine
 import uuid
 
-app = FastAPI(title="Luna AI Core - Step 1", version="0.1.0")
+app = FastAPI(title="Luna AI Core - UI Integration", version="0.1.0")
+
+# --- 1. CORS (For local development if you run frontend separately) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict this to your domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # In-memory store for active sessions (Short-term memory)
 # In production, it's Redis. For the Proof Of Concept (POC), it's sufficient
 sessions: dict[str, LunaState] = {}
 orchestrator = LunaOrchestrator()
 
 
-# Request/Response Models
+# Request/Response Models (Pydantic Models)
 class ChatRequest(BaseModel):
     session_id: str | None = None  # If null, we create a new one.
     input: str
@@ -23,6 +37,25 @@ class ChatResponse(BaseModel):
     status: str
     audit_trail: list  # Exposing the audit trail directly in the API response!
     requires_confirmation: bool
+
+
+class ConfirmRequest(BaseModel):
+    action_id: str
+
+
+class ConfirmResponse(BaseModel):
+    session_id: str
+    response: str
+    status: str
+    audit_trail: list
+
+
+class ActionRequest(BaseModel):
+    tool: str  # e.g., "create_reminder"
+    params: dict  # e.g., {"text": "Call Mom", "time": "now"}
+
+
+# --- 4. API Endpoints ---
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -41,6 +74,7 @@ async def chat(request: ChatRequest):
 
     state = orchestrator.process(session_id, request.input)
     sessions[session_id] = state
+
     return ChatResponse(
         session_id=session_id,
         response=state.final_response,
@@ -48,17 +82,6 @@ async def chat(request: ChatRequest):
         audit_trail=[entry.model_dump(mode="json") for entry in state.audit_trail],
         requires_confirmation=(state.status == "AWAITING_CONFIRMATION"),
     )
-
-
-class ConfirmRequest(BaseModel):
-    action_id: str
-
-
-class ConfirmResponse(BaseModel):
-    session_id: str
-    response: str
-    status: str
-    audit_trail: list
 
 
 @app.post("/confirm/{session_id}", response_model=ConfirmResponse)
@@ -103,7 +126,62 @@ async def confirm(session_id: str, req: ConfirmRequest):
 # requires_confirmation=requires_conf,
 # j)
 
-from luna.proactive import ProactiveEngine
+# from luna.proactive import ProactiveEngine
+
+
+@app.post("/action")
+async def quick_action(session_id: str | None, req: ActionRequest):
+    """
+    Bypass the router/LLM for UI quick actions (Blazing fast: < 100ms).
+    For sensitive tools (send_message, send_email), we still need confirmation.
+    """
+    if session_id is None or session_id not in sessions:
+        session_id = str(uuid.uuid4())
+        sessions[session_id] = LunaState(session_id=session_id)
+
+    state = sessions[session_id]
+
+    # Check if the requested tool is sensitive
+    tool_call = {"tool": req.tool, "parameters": req.params}
+    if PermissionGate.requires_confirmation(tool_call):
+        # Generate action_id and store pending action
+        action_id = PermissionGate.create_action_id(tool_call)
+        state.action_id = action_id
+        state.status = "AWAITING_CONFIRMATION"
+        state.pending_tool_call = tool_call
+
+        # Log the permission block
+        state.log_step(
+            "PermissionGate",
+            "BLOCKED_SENSITIVE",
+            f"Action {action_id} requires confirmation.",
+        )
+        sessions[session_id] = state
+        return {
+            "session_id": session_id,
+            "response": "",
+            "status": "AWAITING_CONFIRMATION",
+            "action_id": action_id,
+            "audit_trail": [
+                entry.model_dump(mode="json") for entry in state.audit_trail
+            ],
+            "requires_confirmation": True,
+        }
+    else:
+
+        # Non-sensitive: execute directly
+        state.pending_tool_call = tool_call
+        state = orchestrator._executor(state)
+        sessions[session_id] = state
+        return {
+            "session_id": session_id,
+            "response": state.final_response,
+            "status": state.status,
+            "audit_trail": [
+                entry.model_dump(mode="json") for entry in state.audit_trail
+            ],
+            "requires_confirmation": False,
+        }
 
 
 @app.post("/event")
@@ -127,3 +205,7 @@ async def handle_event(event: dict):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# --- Serve Static UI (Must be at the end) ---
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
